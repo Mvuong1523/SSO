@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { login } from "../reducers/authSlice";
 import { useAppDispatch, useAppSelector } from "../store/hook";
+import { authApi } from "../services/authApi";
 
 export const LoginPage = () => {
     const [formData, setFormData] = useState({
@@ -11,31 +12,11 @@ export const LoginPage = () => {
 
     const dispatch = useAppDispatch();
     const navigate = useNavigate();
-    const { loading, error } = useAppSelector(state => state.authStore);
+    const { loading, error, isAuthenticated } = useAppSelector(state => state.authStore);
 
-    // Auto-login check via SSO Session
-    useEffect(() => {
-        const checkSSO = async () => {
-            // Only check if not already logged in locally
-            if (!localStorage.getItem('accessToken')) {
-                try {
-                    const { authApi } = await import("../services/authApi");
-                    const checkData = await authApi.checkSession();
-
-                    if (checkData.authenticated) {
-                        const tokenData = await authApi.issueToken();
-                        localStorage.setItem('accessToken', tokenData.accessToken);
-                        localStorage.setItem('refreshToken', tokenData.refreshToken); // If issues token returns it
-                        // Update Redux state manually or reload to let App handle it
-                        window.location.reload();
-                    }
-                } catch (e) {
-                    // Session invalid, stay on login page
-                }
-            }
-        };
-        checkSSO();
-    }, []);
+    const queryParameters = new URLSearchParams(window.location.search);
+    const redirectAfterLogin = queryParameters.get("redirect_after_login");
+    const isSsoRedirect = queryParameters.get("start_sso") === "true";
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -45,13 +26,39 @@ export const LoginPage = () => {
         });
     };
 
+    // Check SSO Session on Mount (Federation Style)
+    useEffect(() => {
+        // If we have already checked SSO (sso_done=true coming from callback), just show form
+        const ssoDone = queryParameters.get("sso_done") === "true";
+        if (ssoDone || isSsoRedirect) return;
+
+        // Otherwise, redirect to Identity Provider to check session
+        console.log("Redirecting to Identity Provider for SSO Check...");
+
+        // Centralized Login Domain
+        const ssoUrl = "http://login-center.com:8080/api/auth/sso/authorize";
+        const callbackUrl = window.location.origin + "/sso-callback";
+
+        let targetUrl = ssoUrl + "?redirectUrl=" + encodeURIComponent(callbackUrl);
+
+        window.location.href = targetUrl;
+    }, [isSsoRedirect]);
+
+    // REAL IMPLEMENTATION BELOW
+
+
+
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
+        console.log("Login: Start");
+
         try {
+            console.log("Login: Dispatching action...");
             const response = await dispatch(login(formData)).unwrap();
-            localStorage.setItem('accessToken', response.accessToken);
-            localStorage.setItem('refreshToken', response.refreshToken);
-            navigate("/");
+            console.log("Login: Success, payload received", response);
+
+            console.log("Login: Navigating to Home (Full Reload)");
+            window.location.href = "/";
         } catch (error) {
             console.error('Login failed:', error);
         }
@@ -87,7 +94,8 @@ export const LoginPage = () => {
                 </div>
                 {error && <div style={{ color: 'red', marginBottom: '10px' }}>{error}</div>}
                 <button
-                    type="submit"
+                    type="button"
+                    onClick={(e) => handleLogin(e as any)}
                     disabled={loading}
                     style={{ width: '100%', padding: '10px', backgroundColor: '#007bff', color: 'white', border: 'none', cursor: loading ? 'not-allowed' : 'pointer' }}
                 >

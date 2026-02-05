@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @NoArgsConstructor
 public class RefreshTokenInfo {
+    private String token;
     private Long userUid;
     private String userId;
     private LocalDateTime expiresAt;

@@ -26,6 +26,12 @@ axiosInstance.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
+
+        // Skip interceptor if request is for login (avoids infinite loop on wrong credentials)
+        if (originalRequest.url?.includes('/auth/login')) {
+            return Promise.reject(error);
+        }
+
         if (error.response?.status === 401 && !originalRequest._retry) {
             if (isRefreshing) {
                 // Đang refresh → Chờ

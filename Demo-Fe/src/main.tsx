@@ -6,9 +6,7 @@ import AuthApp from './AuthApp.tsx'
 import store from './store/store.ts'
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <Provider store={store}>
-      <AuthApp />
-    </Provider>
-  </StrictMode>,
+  <Provider store={store}>
+    <AuthApp />
+  </Provider>,
 )

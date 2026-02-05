@@ -11,5 +11,7 @@ public interface RefreshTokenService {
 
     void removeToken(String token);
 
+    void saveToken(RefreshTokenInfo info);
+
     boolean isSessionActive(Long userUid);
 }

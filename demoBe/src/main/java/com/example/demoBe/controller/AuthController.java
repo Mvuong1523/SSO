@@ -39,6 +39,7 @@ public class AuthController {
     private RefreshTokenService refreshTokenService;
 
     private static final String SESSION_USER_KEY = "SSO_USER_UID";
+    private static final String SESSION_REFRESH_TOKEN_KEY = "SSO_REFRESH_TOKEN";
 
     // ==================== Local Auth ====================
 
@@ -52,6 +53,14 @@ public class AuthController {
     public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request, HttpSession session) {
         AuthResponse response = authService.loginLocal(request);
         session.setAttribute(SESSION_USER_KEY, response.getUserUid());
+        System.out.println("LOGIN SUCCESS: Session ID = " + session.getId());
+        System.out.println("LOGIN SUCCESS: Set User UID = " + response.getUserUid());
+
+        // Generate and Save Session-Bound Refresh Token
+        String refreshToken = refreshTokenService.generateRefreshToken(response.getUserUid(), response.getUserId());
+        session.setAttribute(SESSION_REFRESH_TOKEN_KEY, refreshToken);
+        response.setRefreshToken(refreshToken);
+
         return ResponseEntity.ok(response);
     }
 
@@ -61,6 +70,12 @@ public class AuthController {
     public ResponseEntity<AuthResponse> googleLogin(@RequestBody GoogleLoginRequest request, HttpSession session) {
         AuthResponse response = authService.loginGoogle(request.getIdToken());
         session.setAttribute(SESSION_USER_KEY, response.getUserUid());
+
+        // Generate and Save Session-Bound Refresh Token
+        String refreshToken = refreshTokenService.generateRefreshToken(response.getUserUid(), response.getUserId());
+        session.setAttribute(SESSION_REFRESH_TOKEN_KEY, refreshToken);
+        response.setRefreshToken(refreshToken);
+
         return ResponseEntity.ok(response);
     }
 
@@ -88,44 +103,102 @@ public class AuthController {
                 user.getAuthProvider()));
     }
 
-    @GetMapping("/sso/token")
-    public ResponseEntity<?> issueToken(
-            @RequestParam String appId,
+    // Inner class to hold data associated with an Auth Code
+    private static class AuthCodeData {
+        Long userUid;
+        String refreshToken;
+
+        public AuthCodeData(Long userUid, String refreshToken) {
+            this.userUid = userUid;
+            this.refreshToken = refreshToken;
+        }
+    }
+
+    private static final Map<String, AuthCodeData> authCodes = new java.util.concurrent.ConcurrentHashMap<>();
+
+    // ==================== SSO (Redirect Flow) ====================
+
+    @GetMapping("/sso/authorize")
+    public ResponseEntity<?> authorize(
             @RequestParam String redirectUrl,
             HttpSession session) {
 
         Long userUid = (Long) session.getAttribute(SESSION_USER_KEY);
 
+        System.out.println("SSO AUTHORIZE: Session ID = " + session.getId());
+        System.out.println("SSO AUTHORIZE: Request URL = " + redirectUrl);
+        System.out.println("SSO AUTHORIZE: Session User UID = " + userUid);
+
         if (userUid == null) {
-            return ResponseEntity.status(401).body(Map.of(
-                    "authenticated", false,
-                    "message", "No active session, please login first",
-                    "redirectUrl", redirectUrl,
-                    "appId", appId));
-        }
+            System.out.println("SSO AUTHORIZE: FAILURE - User not found in session.");
+            // "True SSO": If not logged in, redirect back to the Client's Login Page
+            // (which is usually the start_sso logic, but we need to tell it to STOP
+            // looping)
+            // We append error=login_required so the Client knows to show the Form.
 
-        User user = userMapper.findByUserUid(userUid);
-        if (user == null) {
-            session.invalidate();
-            return ResponseEntity.status(401).body("Session invalid");
-        }
+            // NOTE: Ideally we should validate redirectUrl against a whitelist for
+            // security.
 
-        String token = jwtUtil.generateToken(user);
-
-        if (redirectUrl != null && !redirectUrl.isEmpty()) {
             String separator = redirectUrl.contains("?") ? "&" : "?";
+            String fullRedirect = redirectUrl + separator + "error=login_required";
+
             return ResponseEntity.status(302)
-                    .header("Location", redirectUrl + separator + "token=" + token)
+                    .header("Location", fullRedirect)
                     .build();
         }
 
+        // Get Session-Bound Refresh Token
+        String refreshToken = (String) session.getAttribute(SESSION_REFRESH_TOKEN_KEY);
+
+        // If missing (legacy session?), generate one
+        if (refreshToken == null) {
+            User user = userMapper.findByUserUid(userUid);
+            if (user != null) {
+                refreshToken = refreshTokenService.generateRefreshToken(userUid, user.getUserId());
+                session.setAttribute(SESSION_REFRESH_TOKEN_KEY, refreshToken);
+            }
+        }
+
+        // Generate Code mapping to User + Token
+        String code = java.util.UUID.randomUUID().toString();
+        // Use proper data structure for map
+        authCodes.put(code, new AuthCodeData(userUid, refreshToken));
+
+        String separator = redirectUrl.contains("?") ? "&" : "?";
+        return ResponseEntity.status(302)
+                .header("Location", redirectUrl + separator + "code=" + code)
+                .build();
+    }
+
+    @PostMapping("/sso/exchange")
+    public ResponseEntity<?> exchangeToken(@RequestBody Map<String, String> request) {
+        String code = request.get("code");
+        if (code == null || !authCodes.containsKey(code)) {
+            return ResponseEntity.status(400).body(Map.of("message", "Invalid or expired code"));
+        }
+
+        AuthCodeData data = authCodes.remove(code); // One-time use
+        Long userUid = data.userUid;
+        String sessionRefreshToken = data.refreshToken;
+
+        User user = userMapper.findByUserUid(userUid);
+
+        if (user == null) {
+            return ResponseEntity.status(400).body(Map.of("message", "User not found"));
+        }
+
+        String accessToken = jwtUtil.generateToken(user);
+
+        // Return the Session-Bound Refresh Token!
         AuthResponse response = new AuthResponse();
-        response.setAccessToken(token);
+        response.setAccessToken(accessToken);
+        response.setRefreshToken(sessionRefreshToken);
         response.setTokenType("Bearer");
         response.setUserId(user.getUserId());
         response.setUserUid(user.getUserUid());
         response.setUserType(user.getUserType());
         response.setAuthProvider(user.getAuthProvider());
+
         return ResponseEntity.ok(response);
     }
 

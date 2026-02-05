@@ -1,5 +1,13 @@
 import type { AuthResponse, LoginRequest, RegisterRequest } from "../types/authModel";
-import axiosInstance from "./axiosInstance";
+import axios from 'axios';
+
+// Centralized Login Domain
+const BASE_URL = "http://login-center.com:8080/api/auth";
+
+export const axiosInstance = axios.create({
+    baseURL: BASE_URL,
+    withCredentials: true, // Important for Cookies
+});
 
 export const authApi = {
     register: async (request: RegisterRequest): Promise<void> => {
@@ -32,6 +40,11 @@ export const authApi = {
 
     issueToken: async (): Promise<AuthResponse> => {
         const response = await axiosInstance.get('/auth/sso/token?appId=frontend&redirectUrl=');
+        return response.data;
+    },
+
+    exchangeToken: async (code: string): Promise<AuthResponse> => {
+        const response = await axiosInstance.post('/auth/sso/exchange', { code });
         return response.data;
     }
 };

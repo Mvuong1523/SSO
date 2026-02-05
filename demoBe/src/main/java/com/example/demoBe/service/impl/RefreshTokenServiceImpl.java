@@ -12,50 +12,28 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class RefreshTokenServiceImpl implements RefreshTokenService {
 
-    // Map 1: Lưu token đang active của user (UserUid -> Token String)
-    // Giúp đảm bảo 1 user chỉ có 1 token active và tìm kiếm cực nhanh O(1)
-    private final Map<Long, String> userTokens = new ConcurrentHashMap<>();
-
-    // Map 2: Lưu chi tiết thông tin token (Token String -> Info)
+    // Map: Token String -> Info
     private final Map<String, RefreshTokenInfo> tokenInfoMap = new ConcurrentHashMap<>();
 
     @Override
     public String generateRefreshToken(Long userUid, String userId) {
-        // 1. Kiểm tra xem user đã có token active chưa
-        String existingToken = userTokens.get(userUid);
-
-        if (existingToken != null) {
-            RefreshTokenInfo info = tokenInfoMap.get(existingToken);
-            // Nếu token còn hạn và chưa bị revoke -> Dùng lại luôn!
-            if (info != null && !info.isRevoked() && info.getExpiresAt().isAfter(LocalDateTime.now())) {
-                return existingToken; // <--- RETURN TOKEN CŨ
-            }
-        }
-
-        // 2. Nếu chưa có hoặc đã hết hạn -> Tạo mới
-        return createNewToken(userUid, userId);
-    }
-
-    private String createNewToken(Long userUid, String userId) {
-        // Xóa token cũ nếu có
-        String oldToken = userTokens.get(userUid);
-        if (oldToken != null) {
-            tokenInfoMap.remove(oldToken);
-        }
-
-        // Tạo token mới
+        // Always generate a NEW unique token when called.
+        // Control of "Reuse" is moved to the Controller via Session.
         String newToken = UUID.randomUUID().toString();
         RefreshTokenInfo info = new RefreshTokenInfo(
+                newToken,
                 userUid,
                 userId,
-                LocalDateTime.now().plusDays(30), // 30 ngày
+                LocalDateTime.now().plusDays(30), // 30 days
                 false);
 
-        // Lưu vào cả 2 map
-        userTokens.put(userUid, newToken);
         tokenInfoMap.put(newToken, info);
-
         return newToken;
+    }
+
+    @Override
+    public void saveToken(RefreshTokenInfo info) {
+        tokenInfoMap.put(info.getToken(), info);
     }
 
     @Override
@@ -63,27 +41,18 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         RefreshTokenInfo info = tokenInfoMap.get(token);
 
         if (info == null) {
-            System.out.println("Validate: Token not found: " + token);
-            return null; // Không tìm thấy
+            System.out.println("Validate: Token not found");
+            return null;
         }
 
         if (info.isRevoked()) {
-            System.out.println("Validate: Token is revoked: " + token);
-            return null; // Đã bị revoke
+            System.out.println("Validate: Token is revoked");
+            return null;
         }
 
         if (info.getExpiresAt().isBefore(LocalDateTime.now())) {
             System.out.println("Validate: Token expired");
-            // Hết hạn -> Dọn dẹp
-            removeToken(token);
-            return null;
-        }
-
-        // Kiểm tra xem token này có phải là token active của user không
-        // (Tránh trường hợp token rác trôi nổi)
-        String activeToken = userTokens.get(info.getUserUid());
-        if (activeToken == null || !activeToken.equals(token)) {
-            System.out.println("Validate: Token content valid but not active for user");
+            tokenInfoMap.remove(token); // Cleanup
             return null;
         }
 
@@ -94,29 +63,25 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     public void revokeToken(String token) {
         RefreshTokenInfo info = tokenInfoMap.get(token);
         if (info != null) {
-            System.out.println("Revoking token found in map for user: " + info.getUserId());
-            info.setRevoked(true); // Đánh dấu revoked
-            // Không xóa khỏi map để biết là nó đã từng tồn tại nhưng bị cấm
-        } else {
-            System.out.println("Revoke: Token not found in map: " + token);
+            info.setRevoked(true);
         }
     }
 
     @Override
     public void removeToken(String token) {
-        RefreshTokenInfo info = tokenInfoMap.remove(token);
-        if (info != null) {
-            userTokens.remove(info.getUserUid());
-        }
+        tokenInfoMap.remove(token);
     }
 
     @Override
     public boolean isSessionActive(Long userUid) {
-        String token = userTokens.get(userUid);
-        if (token == null) {
-            return false;
-        }
-        RefreshTokenInfo info = tokenInfoMap.get(token);
-        return info != null && !info.isRevoked() && info.getExpiresAt().isAfter(LocalDateTime.now());
+        // This method is less efficient now without index,
+        // but for checking "Active Session" we usually rely on Cookie/HttpSession
+        // anyway.
+        // We can iterate or ignore. Let's iterate for safety if needed,
+        // or just return true if any valid token exists.
+        return tokenInfoMap.values().stream()
+                .anyMatch(info -> info.getUserUid().equals(userUid)
+                        && !info.isRevoked()
+                        && info.getExpiresAt().isAfter(LocalDateTime.now()));
     }
 }

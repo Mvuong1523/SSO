@@ -51,7 +51,18 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("*"));
+        // Use explicit origins instead of wildcard for better security and credential
+        // reliability
+        configuration.setAllowedOrigins(List.of(
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5174",
+                "http://web-a.com:5173",
+                "http://web-b.com:5174",
+                "http://login-center.com:8080"));
+        // configuration.setAllowedOriginPatterns(List.of("*")); // Deprecated/Less
+        // secure for Credentials
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

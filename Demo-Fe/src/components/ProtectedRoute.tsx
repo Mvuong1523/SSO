@@ -8,7 +8,15 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
     const isAuthenticated = !!localStorage.getItem('accessToken');
 
     if (!isAuthenticated) {
-        return <Navigate to="/login" replace />;
+        // Redirect to Backend SSO to authorize
+        // Centralized Login Domain
+        const ssoUrl = "http://login-center.com:8080/api/auth/sso/authorize";
+        const callbackUrl = window.location.origin + "/sso-callback";
+        const targetUrl = ssoUrl + "?redirectUrl=" + encodeURIComponent(callbackUrl);
+
+        // Use window.location for external redirect
+        window.location.href = targetUrl;
+        return null;
     }
 
     return <>{children}</>;

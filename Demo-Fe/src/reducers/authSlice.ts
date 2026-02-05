@@ -34,12 +34,24 @@ export const logout = createAsyncThunk(
     }
 );
 
+export const validateSession = createAsyncThunk(
+    "auth/validateSession",
+    async (): Promise<any> => {
+        // Calls getProfile using current token. If fails, throws 401.
+        return await authApi.getProfile();
+    }
+);
+
 const authSlice = createSlice({
     name: "auth",
     initialState,
     reducers: {},
     extraReducers: (builder) => {
         builder
+            .addCase(register.pending, (state) => {
+                state.loading = true;
+                state.error = null;
+            })
             .addCase(register.fulfilled, (state) => {
                 state.loading = false;
                 state.error = null;
@@ -47,6 +59,10 @@ const authSlice = createSlice({
             .addCase(register.rejected, (state, action) => {
                 state.loading = false;
                 state.error = action.error.message || "Registration failed";
+            })
+            .addCase(login.pending, (state) => {
+                state.loading = true;
+                state.error = null;
             })
             .addCase(login.fulfilled, (state, action) => {
                 state.loading = false;
@@ -64,6 +80,10 @@ const authSlice = createSlice({
                 state.loading = false;
                 state.error = action.error.message || "Login failed";
             })
+            .addCase(logout.pending, (state) => {
+                state.loading = true;
+                state.error = null;
+            })
             .addCase(logout.fulfilled, (state) => {
                 state.loading = false;
                 state.error = null;
@@ -74,6 +94,26 @@ const authSlice = createSlice({
             .addCase(logout.rejected, (state, action) => {
                 state.loading = false;
                 state.error = action.error.message || "Logout failed";
+                // Force cleanup even on error
+                state.user = null;
+                state.accessToken = null;
+                state.isAuthenticated = false;
+            })
+            .addCase(validateSession.fulfilled, (state, action) => {
+                state.isAuthenticated = true;
+                state.user = {
+                    userId: action.payload.userId,
+                    userUid: action.payload.userUid,
+                    userType: action.payload.userType,
+                    authProvider: action.payload.authProvider
+                };
+            })
+            .addCase(validateSession.rejected, (state) => {
+                // Token invalid on server -> Logout
+                state.isAuthenticated = false;
+                state.user = null;
+                state.accessToken = null;
+                localStorage.clear();
             });
     },
 });
