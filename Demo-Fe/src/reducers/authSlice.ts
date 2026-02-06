@@ -1,120 +1,170 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import axios from "axios";
-import type { AuthResponse, AuthState, LoginRequest, RegisterRequest } from "../types/authModel";
-import { authApi } from "../services/authApi";
+import { authApi, type LoginRequest, type AuthResponse } from "../services/authApi";
+
+// --- Types ---
+interface AuthState {
+    user: any | null;
+    accessToken: string | null;
+    refreshToken: string | null;
+    isAuthenticated: boolean;
+    loading: boolean;
+    error: string | null;
+}
+
+// Initial State: Load from LocalStorage
+const storedAccessToken = localStorage.getItem("accessToken");
+const storedRefreshToken = localStorage.getItem("refreshToken");
 
 const initialState: AuthState = {
     user: null,
-    accessToken: localStorage.getItem("accessToken"),
-    isAuthenticated: !!localStorage.getItem("accessToken"),
+    accessToken: storedAccessToken,
+    refreshToken: storedRefreshToken,
+    isAuthenticated: !!storedAccessToken,
     loading: false,
     error: null,
 };
-export const register = createAsyncThunk(
-    "auth/register",
-    async (request: RegisterRequest): Promise<void> => {
-        await authApi.register(request);
+
+// --- Helpers ---
+const saveTokens = (data: AuthResponse) => {
+    localStorage.setItem("accessToken", data.accessToken);
+    if (data.refreshToken) {
+        localStorage.setItem("refreshToken", data.refreshToken);
     }
-);
-export const login = createAsyncThunk<AuthResponse, LoginRequest>(
+};
+
+const clearTokens = () => {
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+};
+
+// --- Thunks ---
+
+export const loginUser = createAsyncThunk(
     "auth/login",
-    async (request: LoginRequest): Promise<AuthResponse> => {
-        const response = await authApi.login(request);
-        localStorage.setItem("accessToken", response.accessToken);
-        localStorage.setItem("refreshToken", response.refreshToken);
-        return response;
+    async (formData: LoginRequest, { rejectWithValue }) => {
+        try {
+            const response = await authApi.login(formData);
+            saveTokens(response);
+            return response;
+        } catch (err: any) {
+            return rejectWithValue(err.response?.data?.message || "Login failed");
+        }
     }
 );
-export const logout = createAsyncThunk(
+
+export const ssoExchange = createAsyncThunk(
+    "auth/ssoExchange",
+    async (code: string, { rejectWithValue }) => {
+        try {
+            const response = await authApi.exchangeToken(code);
+            saveTokens(response);
+            return response;
+        } catch (err: any) {
+            return rejectWithValue(err.response?.data?.message || "SSO Exchange failed");
+        }
+    }
+);
+
+export const logoutUser = createAsyncThunk(
     "auth/logout",
-    async (refreshToken: string): Promise<void> => {
-        await authApi.logout(refreshToken);
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
+    async (_, { getState }) => {
+        const state = getState() as any;
+        const token = state.authStore.refreshToken;
+        try {
+            await authApi.logout(token);
+        } catch (e) {
+            console.error(e);
+        }
+        clearTokens();
+        return null; // Resolve
     }
 );
 
-export const validateSession = createAsyncThunk(
-    "auth/validateSession",
-    async (): Promise<any> => {
-        // Calls getProfile using current token. If fails, throws 401.
-        return await authApi.getProfile();
+export const refreshToken = createAsyncThunk(
+    "auth/refreshToken",
+    async (token: string, { rejectWithValue }) => {
+        try {
+            const response = await authApi.refreshToken(token);
+            saveTokens(response);
+            return response;
+        } catch (err: any) {
+            clearTokens();
+            return rejectWithValue(err.response?.data?.message || "Refresh failed");
+        }
     }
 );
 
+// --- Slice ---
 const authSlice = createSlice({
     name: "auth",
     initialState,
-    reducers: {},
+    reducers: {
+        clearError: (state) => {
+            state.error = null;
+        }
+    },
     extraReducers: (builder) => {
         builder
-            .addCase(register.pending, (state) => {
-                state.loading = true;
-                state.error = null;
-            })
-            .addCase(register.fulfilled, (state) => {
+            // Login
+            .addCase(loginUser.pending, (state) => { state.loading = true; state.error = null; })
+            .addCase(loginUser.fulfilled, (state, action) => {
                 state.loading = false;
-                state.error = null;
-            })
-            .addCase(register.rejected, (state, action) => {
-                state.loading = false;
-                state.error = action.error.message || "Registration failed";
-            })
-            .addCase(login.pending, (state) => {
-                state.loading = true;
-                state.error = null;
-            })
-            .addCase(login.fulfilled, (state, action) => {
-                state.loading = false;
-                state.error = null;
-                state.user = {
-                    userId: action.payload.userId,
-                    userUid: action.payload.userUid,
-                    userType: action.payload.userType,
-                    authProvider: action.payload.authProvider,
-                }
+                state.isAuthenticated = true;
                 state.accessToken = action.payload.accessToken;
-                state.isAuthenticated = true;
-            })
-            .addCase(login.rejected, (state, action) => {
-                state.loading = false;
-                state.error = action.error.message || "Login failed";
-            })
-            .addCase(logout.pending, (state) => {
-                state.loading = true;
-                state.error = null;
-            })
-            .addCase(logout.fulfilled, (state) => {
-                state.loading = false;
-                state.error = null;
-                state.user = null;
-                state.accessToken = null;
-                state.isAuthenticated = false;
-            })
-            .addCase(logout.rejected, (state, action) => {
-                state.loading = false;
-                state.error = action.error.message || "Logout failed";
-                // Force cleanup even on error
-                state.user = null;
-                state.accessToken = null;
-                state.isAuthenticated = false;
-            })
-            .addCase(validateSession.fulfilled, (state, action) => {
-                state.isAuthenticated = true;
+                state.refreshToken = action.payload.refreshToken;
                 state.user = {
-                    userId: action.payload.userId,
                     userUid: action.payload.userUid,
-                    userType: action.payload.userType,
-                    authProvider: action.payload.authProvider
+                    userType: action.payload.userType
                 };
             })
-            .addCase(validateSession.rejected, (state) => {
-                // Token invalid on server -> Logout
+            .addCase(loginUser.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
+            })
+
+            // SSO Exchange
+            .addCase(ssoExchange.pending, (state) => { state.loading = true; state.error = null; })
+            .addCase(ssoExchange.fulfilled, (state, action) => {
+                state.loading = false;
+                state.isAuthenticated = true;
+                state.accessToken = action.payload.accessToken;
+                state.refreshToken = action.payload.refreshToken;
+                state.user = {
+                    userUid: action.payload.userUid,
+                    userType: action.payload.userType
+                };
+            })
+            .addCase(ssoExchange.rejected, (state, action) => {
+                state.loading = false;
+                state.isAuthenticated = false;
+                state.error = action.payload as string;
+            })
+
+            // Logout
+            .addCase(logoutUser.fulfilled, (state) => {
+                state.user = null;
+                state.accessToken = null;
+                state.refreshToken = null;
+                state.isAuthenticated = false;
+            })
+
+            // Refresh Token
+            .addCase(refreshToken.fulfilled, (state, action) => {
+                state.loading = false;
+                state.isAuthenticated = true;
+                state.accessToken = action.payload.accessToken;
+                state.refreshToken = action.payload.refreshToken;
+            })
+            .addCase(refreshToken.rejected, (state, action) => {
+                state.loading = false;
                 state.isAuthenticated = false;
                 state.user = null;
                 state.accessToken = null;
-                localStorage.clear();
+                state.refreshToken = null;
+                state.error = action.payload as string;
             });
     },
 });
+
+export const { clearError } = authSlice.actions;
 export default authSlice.reducer;
