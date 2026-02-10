@@ -1,0 +1,18 @@
+.p-datatable .p-datatable-tbody > tr.bg-green-50 {
+    background-color: #d4edda !important;
+}
+
+.p-datatable .p-datatable-tbody > tr.bg-yellow-50 {
+    background-color: #fff3cd !important;
+}
+
+.p-datatable .p-datatable-tbody > tr.bg-red-50 {
+    background-color: #f8d7da !important;
+}
+
+.p-datatable .p-datatable-tbody > tr.bg-green-50 > td,
+.p-datatable .p-datatable-tbody > tr.bg-yellow-50 > td,
+.p-datatable .p-datatable-tbody > tr.bg-red-50 > td {
+    background-color: inherit !important;
+}
+

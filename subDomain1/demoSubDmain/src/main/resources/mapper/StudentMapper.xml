@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.example.demoSubDmain.mapper.StudentMapper">
+    <resultMap id="StudentResultMap" type="Student">
+        <id     property="id"           column="id"/>
+        <result property="studentCode"  column="student_code"/>
+        <result property="name"         column="name"/>
+        <result property="email"        column="email"/>
+        <result property="birthDate"    column="birth_date"/>
+        <result property="gender"       column="gender"/>
+        <result property="score"        column="score"/>
+    </resultMap>
+
+<!--    lay danh sach co phan trang -->
+    <select id="findByCodeAndName"
+            resultMap="StudentResultMap">
+        SELECT *
+        FROM student
+        <where>
+                <if test="req.keyword != null and req.keyword.trim()!='' ">
+                        (
+                            student_code LIKE CONCAT('%', #{req.keyword}, '%')
+                            OR name LIKE CONCAT('%', #{req.keyword}, '%')
+                        )
+                </if>
+
+                <if test="req.level != null and req.level == 'TRUNG_BINH'">
+                    AND score &lt; 6.5
+                </if>
+
+                <if test="req.level != null and req.level == 'KHA'">
+                    AND score &gt;= 6.5
+                    AND score &lt; 8
+                </if>
+
+                <if test="req.level != null and req.level == 'GIOI'">
+                    AND score &gt;= 8
+                </if>
+
+        </where>
+        LIMIT #{req.size} OFFSET #{offset}
+    </select>
+
+<!--    dem tong so ban ghi thoa man dieu kien tim kiem -->
+    <select id="countByCodeAndName"
+            resultType="int">
+        SELECT COUNT(*)
+        FROM student
+        <where>
+            <if test="keyword != null and keyword.trim()!='' ">
+                (
+                student_code LIKE CONCAT('%', #{keyword}, '%')
+                OR name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+
+            <if test="level != null and level == 'TRUNG_BINH'">
+                AND score &lt; 6.5
+            </if>
+
+            <if test="level != null and level == 'KHA'">
+                AND score &gt;= 6.5
+                AND score &lt; 8
+            </if>
+
+            <if test="level != null and level == 'GIOI'">
+                AND score &gt;= 8
+            </if>
+        </where>
+    </select>
+
+<!--    them hoc sinh-->
+    <insert id ="insert">
+        INSERT INTO student
+            (student_code, name, email, birth_date, gender, score)
+        VALUES
+            (#{studentCode}, #{name},#{email}, #{birthDate}, #{gender}, #{score})
+    </insert>
+
+<!--    sua hoc sinh-->
+    <update id="update"
+            parameterType="Student">
+        UPDATE student
+        <set>
+            <if test="email != null">email = #{email},</if>
+            <if test="score != null">score = #{score},</if>
+        </set>
+        <where>
+            (student_code = #{studentCode})
+        </where>
+    </update>
+
+<!--    xoa hoc sinh-->
+    <delete id="deleteByCode"
+            parameterType="java.lang.String">
+        DELETE FROM student
+        <where>
+            (student_code = #{code})
+        </where>
+    </delete>
+
+<!--    tim theo ma HS-->
+    <select id="countByStudentCode"
+            parameterType="java.lang.String"
+            resultType="int">
+        SELECT COUNT(*)
+        FROM student
+        WHERE student_code = #{studentCode}
+    </select>
+
+<!--tim kiem theo email khac ma hien tai-->
+    <select id="coutByEmailNotCode"
+            resultType="int">
+        SELECT COUNT(*)
+        FROM student
+        WHERE email = #{email}
+        AND student_code != #{studentCode}
+    </select>
+
+<!--    tim kiem theo email-->
+    <select id="countByEmail"
+            resultType="int">
+        SELECT COUNT(*)
+        FROM student
+        WHERE email = #{email}
+    </select>
+
+
+</mapper>

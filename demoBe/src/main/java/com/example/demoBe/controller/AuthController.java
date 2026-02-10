@@ -13,6 +13,11 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 @RestController
 @RequestMapping("/api")
@@ -24,23 +29,47 @@ public class AuthController {
     @Autowired
     private RedisService redisService;
 
-    private static final String COOKIE_NAME = "SSO_SESSION";
+    @Autowired
+    private com.example.demoBe.util.JwtUtil jwtUtil;
 
-    // ================== AUTH (LOCAL via API - Optional if Thymeleaf used)
-    // ==================
+    private static final String COOKIE_NAME = "SSO_SESSION";
 
     @PostMapping("/auth/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletResponse response) {
-        AuthResponse authResponse = authService.loginLocal(request);
+        try {
+            AuthResponse authResponse = authService.loginLocal(request);
 
-        // Set HttpOnly Cookie (Refresh Token) for Global Session
-        Cookie cookie = new Cookie(COOKIE_NAME, authResponse.getRefreshToken());
-        cookie.setHttpOnly(true);
-        cookie.setPath("/");
-        cookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-        response.addCookie(cookie);
+            Cookie refreshCookie = new Cookie("refresh_token", authResponse.getRefreshToken());
+            refreshCookie.setHttpOnly(true);
+            refreshCookie.setPath("/");
+            refreshCookie.setMaxAge(24*60*60);
+            response.addCookie(refreshCookie);
+            return  ResponseEntity.ok(authResponse);
+        } catch (DisabledException e){
+            return ResponseEntity.status(401);
+            .body(Map.of("message","Invalid username or password"))
+        }
+//        AuthResponse authResponse = authService.loginLocal(request);
+//
+//
+//        Cookie refreshCookie = new Cookie("refresh_token", authResponse.getRefreshToken());
+//        refreshCookie.setHttpOnly(true);
+//        refreshCookie.setPath("/");
+//        refreshCookie.setMaxAge(24 * 60 * 60); // 1 day
+//        response.addCookie(refreshCookie);
+//
+//        return ResponseEntity.ok(authResponse);
+    }
 
-        return ResponseEntity.ok(authResponse);
+    @PostMapping("/auth/register")
+    public ResponseEntity<?> register(@RequestBody LoginRequest request) {
+        try {
+            authService.register(request);
+            return ResponseEntity.ok(Map.of("message", "Đăng ký thành công"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("message", e.getMessage()));
+        }
     }
 
     // ================== SSO / OAUTH ==================
@@ -51,58 +80,48 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response) {
 
-        // 1. Check Cookie
         String refreshToken = null;
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             for (Cookie c : cookies) {
-                if (COOKIE_NAME.equals(c.getName())) {
+                if ("refresh_token".equals(c.getName())) {
                     refreshToken = c.getValue();
                     break;
                 }
             }
         }
 
-        // 2. Validate Session
         if (refreshToken != null && redisService.hasRefreshToken(refreshToken)) {
-            // Valid Session -> Generate Code
             Object data = redisService.getRefreshToken(refreshToken);
             Long userUid = Long.valueOf(data.toString());
 
-            // Pass the CURRENT valid RefreshToken to be reused
-            String code = authService.generateAuthCode(userUid, refreshToken);
+            AuthResponse authResponse = authService.generateTokenForUser(userUid, refreshToken);
 
-            // Redirect with code
             String separator = redirect_uri.contains("?") ? "&" : "?";
-            String targetUrl = redirect_uri + separator + "code=" + code;
+            String targetUrl = redirect_uri + separator 
+                + "access_token=" + authResponse.getAccessToken() 
+                + "&refresh_token=" + refreshToken;
 
             return ResponseEntity.status(302).header("Location", targetUrl).build();
         }
 
-        // 3. Invalid/No Session -> Redirect to React Frontend Login Page (Central)
+        // 3. Invalid/No Session -> Redirect to Login Page
         String encodedRedirect = URLEncoder.encode(redirect_uri, StandardCharsets.UTF_8);
-
-        // Pointing to Frontend URL (port 5173) instead of Backend URL
-        String loginUrl = "http://localhost:5173/login-central?redirect_uri=" + encodedRedirect;
+        String loginUrl = "/login?redirect_uri=" + encodedRedirect;
 
         return ResponseEntity.status(302).header("Location", loginUrl).build();
     }
 
-    @PostMapping("/oauth/token")
-    public ResponseEntity<?> exchangeToken(@RequestBody Map<String, String> body) {
-        String code = body.get("code");
-        if (code == null)
-            return ResponseEntity.badRequest().body("Code required");
-
-        AuthResponse response = authService.exchangeCode(code);
-        return ResponseEntity.ok(response);
-    }
-
     @PostMapping("/oauth/refresh")
-    public ResponseEntity<?> refreshToken(@RequestBody Map<String, String> body) {
-        String refreshToken = body.get("refreshToken");
-        if (refreshToken == null)
+    public ResponseEntity<?> refreshToken(HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        String refreshToken = null;
+        if (authHeader != null && authHeader.startsWith("Bearer")){
+            refreshToken = authHeader.substring(7);
+            }
+        if (refreshToken == null){
             return ResponseEntity.badRequest().body("Refresh Token required");
+        }
 
         try {
             AuthResponse response = authService.refreshToken(refreshToken);
@@ -113,19 +132,24 @@ public class AuthController {
     }
 
     @PostMapping("/oauth/logout")
-    public ResponseEntity<?> logout(@RequestBody Map<String, String> body, HttpServletResponse response) {
-        String refreshToken = body.get("refreshToken");
+    public ResponseEntity<?> logout( HttpServletRequest request, HttpServletResponse response) {
+        String authHeader = request.getHeader("Authorization");
+        String refreshToken = null;
+        if (authHeader != null && authHeader.startsWith("Bearer")){
+            refreshToken = authHeader.substring(7);
+        }
         if (refreshToken != null) {
             authService.logout(refreshToken);
         }
-
-        // Clear Cookie
-        Cookie cookie = new Cookie(COOKIE_NAME, null);
-        cookie.setHttpOnly(true);
-        cookie.setPath("/");
-        cookie.setMaxAge(0);
-        response.addCookie(cookie);
-
+        
+        Cookie refreshCookie = new Cookie("refresh_token", null);
+        refreshCookie.setHttpOnly(true);
+        refreshCookie.setPath("/");
+        refreshCookie.setMaxAge(0);
+        response.addCookie(refreshCookie);
+        
         return ResponseEntity.ok("Logged out");
     }
+
+
 }

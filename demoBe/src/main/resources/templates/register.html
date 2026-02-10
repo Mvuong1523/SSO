@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSO Register</title>
+    <link rel="stylesheet" href="/css/login.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1> Đăng Ký Tài Khoản</h1>
+            <p>Tạo tài khoản để truy cập tất cả dịch vụ</p>
+        </div>
+
+        <div id="errorMessage" class="error-message"></div>
+        <div id="successMessage" class="success-message"></div>
+
+        <form id="registerForm">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autocomplete="email" placeholder="example@email.com">
+            </div>
+
+            <div class="form-group">
+                <label for="password">Mật khẩu</label>
+                <input type="password" id="password" name="password" required autocomplete="new-password" placeholder="Tối thiểu 6 ký tự">
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">Xác nhận mật khẩu</label>
+                <input type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password" placeholder="Nhập lại mật khẩu">
+            </div>
+
+            <button type="submit" class="btn-login" id="registerBtn">Đăng Ký</button>
+        </form>
+
+        <div id="loading" class="loading">Đang xử lý...</div>
+
+        <div class="redirect-info">
+            Đã có tài khoản? <a href="#" id="loginLink" style="color: #667eea; text-decoration: none; font-weight: 600;">Đăng nhập ngay</a>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const redirectUri = urlParams.get('redirect_uri') || '';
+        
+        // Update login link to preserve redirect_uri
+        const loginLink = document.getElementById('loginLink');
+        if (redirectUri) {
+            loginLink.href = `/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+        } else {
+            loginLink.href = '/login';
+        }
+
+        const registerForm = document.getElementById('registerForm');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        const registerBtn = document.getElementById('registerBtn');
+        const loading = document.getElementById('loading');
+
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            errorMessage.classList.remove('show');
+            successMessage.classList.remove('show');
+
+            // Validate
+            if (password.length < 6) {
+                errorMessage.textContent = 'Mật khẩu phải có ít nhất 6 ký tự!';
+                errorMessage.classList.add('show');
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                errorMessage.textContent = 'Mật khẩu xác nhận không khớp!';
+                errorMessage.classList.add('show');
+                return;
+            }
+
+            registerBtn.disabled = true;
+            loading.classList.add('show');
+
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Đăng ký thất bại');
+                }
+
+                successMessage.textContent = 'Đăng ký thành công! Đang chuyển đến trang đăng nhập...';
+                successMessage.classList.add('show');
+
+                setTimeout(() => {
+                    if (redirectUri) {
+                        window.location.href = `/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+                    } else {
+                        window.location.href = '/login';
+                    }
+                }, 2000);
+
+            } catch (error) {
+                errorMessage.textContent = error.message || 'Đăng ký thất bại. Vui lòng thử lại!';
+                errorMessage.classList.add('show');
+                registerBtn.disabled = false;
+                loading.classList.remove('show');
+            }
+        });
+    </script>
+</body>
+</html>

@@ -10,11 +10,4 @@ public interface UserMapper {
 
     User findByUserUid(@Param("userUid") Long userUid);
 
-    User findByEmail(@Param("email") String email);
-
-    void insertUser(User user);
-
-    void updateUser(User user);
-
-    void updatePassword(@Param("userUid") Long userUid, @Param("pwd") String pwd);
 }

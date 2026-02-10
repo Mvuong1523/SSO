@@ -8,12 +8,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class RedisService {
 
-    // Using RAM (Map) instead of Redis
-    // Key: Token/Code, Value: UserUid (String) OR "UserUid:OriginalRefreshToken"
+
     private final Map<String, String> inMemoryStore = new ConcurrentHashMap<>();
 
     public void saveAuthCode(String code, String value) {
-        inMemoryStore.put(code, value); // Value can be just UID or "UID:RefreshToken"
+        inMemoryStore.put(code, value);
 
     }
 
