@@ -2,8 +2,11 @@ package com.example.demoBe.controller;
 
 import com.example.demoBe.dto.AuthResponse;
 import com.example.demoBe.dto.LoginRequest;
+import com.example.demoBe.dto.RegisterRequest;
 import com.example.demoBe.service.AuthService;
 import com.example.demoBe.service.RedisService;
+import com.example.demoBe.util.CookieUtil;
+import com.example.demoBe.util.RememberMeUtil;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -13,15 +16,16 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
-import org.springframework.security.authentication.LockedException;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 @RestController
 @RequestMapping("/api")
 public class AuthController {
+    @Autowired
+    private CookieUtil cookieUtil;
+
+    @Autowired
+    private RememberMeUtil rememberMeUtil;
 
     @Autowired
     private AuthService authService;
@@ -29,13 +33,8 @@ public class AuthController {
     @Autowired
     private RedisService redisService;
 
-    @Autowired
-    private com.example.demoBe.util.JwtUtil jwtUtil;
-
-    private static final String COOKIE_NAME = "SSO_SESSION";
-
     @PostMapping("/auth/login")
-    public ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletResponse response) {
+    public ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletResponse response, HttpServletRequest httpRequest) {
         try {
             AuthResponse authResponse = authService.loginLocal(request);
 
@@ -44,25 +43,69 @@ public class AuthController {
             refreshCookie.setPath("/");
             refreshCookie.setMaxAge(24*60*60);
             response.addCookie(refreshCookie);
+
+            if (request.isRememberMe()){
+                String data = request.getUsername() + ":" + request.getPassword();
+                String encrypted = rememberMeUtil.encrypt(data);
+                String existAccounts = cookieUtil.getCookieValue(httpRequest,"remember-me");
+                String newAccounts = cookieUtil.addRememberMe(
+                        existAccounts,
+                        request.getUsername(),
+                        encrypted
+                );
+                
+                String encodedAccounts = URLEncoder.encode(newAccounts, StandardCharsets.UTF_8);
+                Cookie remember = new Cookie("remember-me", encodedAccounts);
+                remember.setMaxAge( 30 * 24 * 60 * 60);
+                remember.setPath("/");
+                remember.setHttpOnly(true);
+                response.addCookie(remember);
+
+                String savedAccounts = cookieUtil.getCookieValue(httpRequest, "savedAccounts");
+                savedAccounts = cookieUtil.addAccountToList(savedAccounts, request.getUsername());
+                
+                Cookie accountsCookie = new Cookie("savedAccounts", savedAccounts);
+                accountsCookie.setHttpOnly(false);
+                accountsCookie.setPath("/");
+                accountsCookie.setMaxAge(30*24*60*60);
+                response.addCookie(accountsCookie);
+
+            } else {
+                String existingRememberMe = cookieUtil.getCookieValue(httpRequest, "remember-me");
+                String existingSavedAccounts = cookieUtil.getCookieValue(httpRequest, "savedAccounts");
+                
+                if (existingRememberMe != null && !existingRememberMe.isEmpty()) {
+                    String token = cookieUtil.getRememberMeToken(existingRememberMe, request.getUsername());
+                    
+                    if (token != null) {
+                        // Tài khoản đã được lưu trước đó -> xóa đi
+                        String updatedRememberMe = cookieUtil.removeRememberMeToken(existingRememberMe, request.getUsername());
+                        String encodedUpdatedRememberMe = URLEncoder.encode(updatedRememberMe, StandardCharsets.UTF_8);
+                        
+                        Cookie rememberCookie = new Cookie("remember-me", encodedUpdatedRememberMe);
+                        rememberCookie.setMaxAge(30 * 24 * 60 * 60);
+                        rememberCookie.setPath("/");
+                        rememberCookie.setHttpOnly(true);
+                        response.addCookie(rememberCookie);
+                        
+                        // Xóa khỏi savedAccounts
+                        String updatedSavedAccounts = cookieUtil.removeAccountFromList(existingSavedAccounts, request.getUsername());
+                        Cookie accountsCookie = new Cookie("savedAccounts", updatedSavedAccounts);
+                        accountsCookie.setHttpOnly(false);
+                        accountsCookie.setPath("/");
+                        accountsCookie.setMaxAge(30 * 24 * 60 * 60);
+                        response.addCookie(accountsCookie);
+                    }
+                }
+            }
             return  ResponseEntity.ok(authResponse);
         } catch (DisabledException e){
-            return ResponseEntity.status(401);
-            .body(Map.of("message","Invalid username or password"))
+            return ResponseEntity.status(401).body(Map.of("message","Invalid username or password"));
         }
-//        AuthResponse authResponse = authService.loginLocal(request);
-//
-//
-//        Cookie refreshCookie = new Cookie("refresh_token", authResponse.getRefreshToken());
-//        refreshCookie.setHttpOnly(true);
-//        refreshCookie.setPath("/");
-//        refreshCookie.setMaxAge(24 * 60 * 60); // 1 day
-//        response.addCookie(refreshCookie);
-//
-//        return ResponseEntity.ok(authResponse);
     }
 
     @PostMapping("/auth/register")
-    public ResponseEntity<?> register(@RequestBody LoginRequest request) {
+    public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
         try {
             authService.register(request);
             return ResponseEntity.ok(Map.of("message", "Đăng ký thành công"));
@@ -71,6 +114,9 @@ public class AuthController {
                 .body(Map.of("message", e.getMessage()));
         }
     }
+
+
+    
 
     // ================== SSO / OAUTH ==================
 
@@ -150,6 +196,8 @@ public class AuthController {
         
         return ResponseEntity.ok("Logged out");
     }
+
+
 
 
 }

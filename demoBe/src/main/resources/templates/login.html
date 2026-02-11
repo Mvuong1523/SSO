@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,14 +18,20 @@
         <form id="loginForm">
             <div class="form-group">
                 <label for="email">Email / Tên đăng nhập</label>
-                <input type="text" id="email" name="email" required autocomplete="username">
+                <div style="position: relative;">
+                    <input type="text" id="email" name="email" required autocomplete="username" th:value="${savedEmail != null ? savedEmail : ''}">
+                    <div id="savedAccountsDropdown" class="saved-accounts-dropdown" style="display: none;"> </div>
+                    </div>
             </div>
 
             <div class="form-group">
                 <label for="password">Mật khẩu</label>
-                <input type="password" id="password" name="password" required autocomplete="current-password">
+                <input type="password" id="password" name="password" required autocomplete="current-password" th:value="${savedPassword != null ? savedPassword : ''}">
             </div>
-
+            <div class = "form-group" style = "display: flex; aglign-items: center; gap: 8px;">
+                <input type = "checkbox" id = "rememberMe" name ="rememberMe">
+                <label for = "rememberMe" style="margin: 0; cursor: pointer;">Ghi nhớ đăng nhập</label>
+            </div>
             <button type="submit" class="btn-login" id="loginBtn">Đăng Nhập</button>
         </form>
 
@@ -64,6 +70,7 @@
 
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
+            const rememberMe = document.getElementById('rememberMe').checked;
 
             errorMessage.classList.remove('show');
             loginBtn.disabled = true;
@@ -75,7 +82,11 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ username: email, password: password }),
+                    body: JSON.stringify({ 
+                        username: email, 
+                        password: password,
+                        rememberMe: rememberMe
+                    }),
                     credentials: 'include'
                 });
 
@@ -94,6 +105,64 @@
                 loading.classList.remove('show');
             }
         });
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) {
+                return parts.pop().split(';').shift();
+            }
+            return null; 
+        }
+        const emailInput = document.getElementById('email');
+        const dropdown = document.getElementById('savedAccountsDropdown');
+        let savedAccountsList = [];
+
+        window.addEventListener('DOMContentLoaded', () => {
+        const savedAccounts = getCookie('savedAccounts');
+        if (savedAccounts) {
+            // Hỗ trợ cả | và , để tương thích cookie cũ
+            const separator = savedAccounts.includes('|') ? '|' : ',';
+            savedAccountsList = savedAccounts.split(separator).filter(e => e.trim());
+        }
+        });
+        emailInput.addEventListener('focus', () => {
+            if (savedAccountsList.length > 0) {
+                showDropdown();
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!emailInput.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+
+        function showDropdown() {
+            dropdown.innerHTML = '';
+            
+            if (savedAccountsList.length === 0) {
+                dropdown.innerHTML = '<div class="no-saved-accounts">Chưa có tài khoản đã lưu</div>';
+            } else {
+                savedAccountsList.forEach(email => {
+                    const item = document.createElement('div');
+                    item.className = 'saved-account-item';
+                    item.textContent = email;
+                    item.onclick = () => selectAccount(email);
+                    dropdown.appendChild(item);
+                });
+            }
+            
+            dropdown.style.display = 'block';
+        }
+
+        function selectAccount(email) {
+            dropdown.style.display = 'none';
+            
+            const currentRedirectUri = urlParams.get('redirect_uri') || '';
+            const url = `/login?email=${encodeURIComponent(email)}${currentRedirectUri ? '&redirect_uri=' + encodeURIComponent(currentRedirectUri) : ''}`;
+            window.location.href = url;
+        }
+
     </script>
 </body>
 </html>

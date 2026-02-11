@@ -2,9 +2,13 @@ package com.example.demoBe.service;
 
 import com.example.demoBe.dto.AuthResponse;
 import com.example.demoBe.dto.LoginRequest;
+import com.example.demoBe.dto.RegisterRequest;
 import com.example.demoBe.entity.User;
 import com.example.demoBe.mapper.UserMapper;
 import com.example.demoBe.util.JwtUtil;
+import com.example.demoBe.util.RememberMeUtil;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -18,6 +22,8 @@ import java.util.UUID;
 
 @Service
 public class AuthService {
+
+
 
     @Autowired
     private UserMapper userMapper;
@@ -34,7 +40,6 @@ public class AuthService {
     @Autowired
     private AuthenticationManager authenticationManager;
 
-    // Local Login (returns User for session creation)
     public AuthResponse loginLocal(LoginRequest request) {
         try{
             Authentication authentication = authenticationManager.authenticate(
@@ -44,6 +49,7 @@ public class AuthService {
                     )
 
             );
+
             UserDetails userDetails = (UserDetails) authentication.getPrincipal();
             User user = userMapper.findByUserId(userDetails.getUsername());
 
@@ -51,6 +57,8 @@ public class AuthService {
             String refreshToken = jwtUtil.generateRefreshToken(user);
 
             redisService.saveRefreshToken(refreshToken, user.getUserUid());
+
+
 
             return buildAuthResponse(user, accessToken, refreshToken);
 
@@ -103,22 +111,32 @@ public class AuthService {
         return response;
     }
 
-    public void register(LoginRequest request) {
+    public void register(RegisterRequest request) {
+        // Validate input
+        if (request.getEmail() == null || request.getEmail().trim().isEmpty()) {
+            throw new RuntimeException("Email không được để trống");
+        }
+        if (request.getPassword() == null || request.getPassword().trim().isEmpty()) {
+            throw new RuntimeException("Mật khẩu không được để trống");
+        }
+
         // Check if user already exists
-        User existingUser = userMapper.findByUserId(request.getUsername());
+        User existingUser = userMapper.findByUserId(request.getEmail());
         if (existingUser != null) {
             throw new RuntimeException("Email đã được sử dụng");
         }
 
         // Create new user
         User newUser = new User();
-        newUser.setUserId(request.getUsername());
-        newUser.setEmail(request.getUsername());
+        newUser.setUserId(request.getEmail());
+        newUser.setEmail(request.getEmail());
         newUser.setPwd(passwordEncoder.encode(request.getPassword()));
         newUser.setUserType("USER");
         newUser.setStatus("ACTIVE");
         newUser.setAuthProvider("LOCAL");
+        newUser.setCreatedBy("SYSTEM");
+        newUser.setUpdatedBy("SYSTEM");
 
-//        userMapper.insertUser(newUser);
+        userMapper.insertUser(newUser);
     }
 }

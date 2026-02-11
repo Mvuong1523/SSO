@@ -30,8 +30,8 @@
     </select>
 
     <insert id="insertUser" parameterType="User" useGeneratedKeys="true" keyProperty="userUid">
-        INSERT INTO users (user_id, pwd, pwd_expr, status, user_type, auth_provider, email, created_date, created_by, updated_date, updated_by)
-        VALUES (#{userId}, #{pwd}, #{pwdExpr}, #{status}, #{userType}, #{authProvider}, #{email}, #{createdDate}, #{createdBy}, #{updatedDate}, #{updatedBy})
+        INSERT INTO users (user_id, pwd, status, user_type, auth_provider, email, created_date, created_by, updated_date, updated_by)
+        VALUES (#{userId}, #{pwd}, #{status}, #{userType}, #{authProvider}, #{email}, NOW(), #{createdBy}, NOW(), #{updatedBy})
     </insert>
 
     <update id="updateUser" parameterType="User">

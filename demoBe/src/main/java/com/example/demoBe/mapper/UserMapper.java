@@ -10,4 +10,6 @@ public interface UserMapper {
 
     User findByUserUid(@Param("userUid") Long userUid);
 
+    void insertUser(User user);
+
 }
